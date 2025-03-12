@@ -1,0 +1,13 @@
+{
+  "name": "author-task",
+  "version": "1.0.0",
+  "description": "WebSocket bridge between Twilio and Eleven Labs",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.13.0"
+  }
+}
