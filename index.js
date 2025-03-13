@@ -18,6 +18,8 @@ wss.on("connection", async (twilioWs) => {
 
   // ✅ Step 1: Get the Signed URL for the correct AI Agent
   async function getSignedUrl() {
+    console.log("🛠 Fetching signed URL for Agent ID:", elevenLabsAgentId); // Debugging log
+
     try {
       const response = await fetch(
         `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${elevenLabsAgentId}`,
@@ -32,6 +34,7 @@ wss.on("connection", async (twilioWs) => {
       }
 
       const data = await response.json();
+      console.log("✅ Signed URL received:", data.signed_url); // Log the signed URL
       return data.signed_url;
     } catch (error) {
       console.error("❌ Error getting signed URL:", error);
@@ -53,18 +56,19 @@ wss.on("connection", async (twilioWs) => {
   elevenLabsWs.on("open", () => {
     console.log("✅ Connected to Eleven Labs");
 
-    // ✅ Send Initial AI Agent Configuration
+    // ✅ Force AI Agent Configuration
     const initialConfig = {
       type: "conversation_initiation_client_data",
       conversation_config_override: {
+        agent_id: elevenLabsAgentId, // Force the correct AI agent ID
         agent: {
-          prompt: { prompt: "Your custom AI agent's behavior and style" },
-          first_message: "Your AI agent's greeting message",
+          prompt: { prompt: "Your AI agent's custom behavior and style" },
+          first_message: "Hello! This is your AI assistant. How can I help you?",
         },
       },
     };
 
-    console.log("📡 Sending AI agent configuration...");
+    console.log("📡 Sending forced AI agent configuration...");
     elevenLabsWs.send(JSON.stringify(initialConfig));
   });
 
