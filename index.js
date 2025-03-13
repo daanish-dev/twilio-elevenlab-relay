@@ -10,7 +10,7 @@ const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
 const elevenLabsAgentId = process.env.ELEVENLABS_AGENT_ID;
 
 const wss = new WebSocketServer({ port }, () => {
-  console.log(`✅ WebSocket Server running on port ${port}`);
+  console.log("✅ WebSocket Server running on port ${port}");
 });
 
 wss.on("connection", async (twilioWs) => {
