@@ -50,7 +50,23 @@ wss.on("connection", async (twilioWs) => {
   // ✅ Step 2: Connect to Eleven Labs using the Signed URL
   const elevenLabsWs = new WebSocket(signedUrl);
 
-  elevenLabsWs.on("open", () => console.log("✅ Connected to Eleven Labs"));
+  elevenLabsWs.on("open", () => {
+    console.log("✅ Connected to Eleven Labs");
+
+    // ✅ Send Initial AI Agent Configuration
+    const initialConfig = {
+      type: "conversation_initiation_client_data",
+      conversation_config_override: {
+        agent: {
+          prompt: { prompt: "Your custom AI agent's behavior and style" },
+          first_message: "Your AI agent's greeting message",
+        },
+      },
+    };
+
+    console.log("📡 Sending AI agent configuration...");
+    elevenLabsWs.send(JSON.stringify(initialConfig));
+  });
 
   // Track connection states
   let isTwilioConnected = true;
