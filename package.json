@@ -8,7 +8,9 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "node-fetch": "^3.3.2",
-    "ws": "^8.13.0"
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0",
+    "node-fetch": "^3.3.0"
   }
 }
+
