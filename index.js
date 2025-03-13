@@ -12,15 +12,27 @@ wss.on("connection", (twilioWs) => {
   // Connect to Eleven Labs WebSocket
   const elevenLabsWs = new WebSocket("wss://api.elevenlabs.io/v1/conversational/stream", {
     headers: {
-      "xi-api-key": process.env.ELEVEN_LABS_API_KEY,
+      "xi-api-key": "sk_2de7a2463796ce0b9588f3d92507cc1631b0d957f06078ab",
+      "xi-agent-id": "JzzWYXNl2EgI01Z0OTvR", // Ensure the correct AI agent ID is used
     },
   });
 
   elevenLabsWs.on("open", () => console.log("✅ Connected to Eleven Labs"));
 
-  // Keep track of the connection status
+  // Track connection states
   let isTwilioConnected = true;
   let isElevenLabsConnected = true;
+
+  // Send silent audio packets to Twilio to keep the connection alive
+  const sendSilence = () => {
+    if (twilioWs.readyState === WebSocket.OPEN) {
+      console.log("🔈 Sending silence to prevent Twilio timeout...");
+      twilioWs.send(Buffer.from([0xF8, 0xFF, 0xFE])); // Silent Opus frame
+    }
+  };
+
+  // Keep-alive interval to send silent packets every 2 seconds
+  const silenceInterval = setInterval(sendSilence, 2000);
 
   // Forward audio from Twilio to Eleven Labs
   twilioWs.on("message", (audioData) => {
@@ -49,19 +61,11 @@ wss.on("connection", (twilioWs) => {
     }
   });
 
-  // Keep-Alive Ping to Prevent Connection Drops
-  const keepAliveInterval = setInterval(() => {
-    if (twilioWs.readyState === WebSocket.OPEN) {
-      console.log("🛠 Sending Keep-Alive Signal to Twilio...");
-      twilioWs.send(JSON.stringify({ type: "keep-alive" }));
-    }
-  }, 5000); // Every 5 seconds
-
   // Handle Twilio WebSocket Closure
   twilioWs.on("close", (code, reason) => {
     console.log(`❌ Twilio WebSocket closed. Code: ${code}, Reason: ${reason}`);
     isTwilioConnected = false;
-    clearInterval(keepAliveInterval);
+    clearInterval(silenceInterval);
     if (isElevenLabsConnected && elevenLabsWs.readyState !== WebSocket.CLOSED) {
       elevenLabsWs.close();
     }
