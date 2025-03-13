@@ -1,4 +1,8 @@
 import WebSocket, { WebSocketServer } from "ws";
+import fetch from "node-fetch"; // Ensure fetch is available
+import dotenv from "dotenv";
+
+dotenv.config();
 
 // Set port (Render will use this, defaults to 8080)
 const port = process.env.PORT || 8080;
@@ -6,16 +10,44 @@ const wss = new WebSocketServer({ port }, () => {
   console.log(`✅ WebSocket Server running on port ${port}`);
 });
 
-wss.on("connection", (twilioWs) => {
+// Retrieve a signed WebSocket URL from Eleven Labs
+async function getSignedUrl() {
+  try {
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${process.env.ELEVENLABS_AGENT_ID}`,
+      {
+        method: "GET",
+        headers: {
+          "xi-api-key": process.env.ELEVENLABS_API_KEY,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to get signed URL: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.signed_url;
+  } catch (error) {
+    console.error("❌ Error getting signed URL:", error);
+    return null;
+  }
+}
+
+wss.on("connection", async (twilioWs) => {
   console.log("✅ Twilio connected to our WebSocket");
 
-  // Connect to Eleven Labs WebSocket
-  const elevenLabsWs = new WebSocket("wss://api.elevenlabs.io/v1/conversational/stream", {
-    headers: {
-      "xi-api-key": "sk_2de7a2463796ce0b9588f3d92507cc1631b0d957f06078ab",
-      "xi-agent-id": "JzzWYXNl2EgI01Z0OTvR", // Ensure the correct AI agent ID is used
-    },
-  });
+  // Get the signed URL for the Eleven Labs agent
+  const signedUrl = await getSignedUrl();
+  if (!signedUrl) {
+    console.error("❌ Could not obtain a signed WebSocket URL. Closing connection.");
+    twilioWs.close();
+    return;
+  }
+
+  // Connect to Eleven Labs WebSocket using the signed URL
+  const elevenLabsWs = new WebSocket(signedUrl);
 
   elevenLabsWs.on("open", () => console.log("✅ Connected to Eleven Labs"));
 
