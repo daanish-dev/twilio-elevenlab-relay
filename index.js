@@ -63,7 +63,7 @@ wss.on("connection", async (twilioWs) => {
   elevenLabsWs.on("open", () => {
     console.log("✅ Connected to Eleven Labs WebSocket");
 
-    // ✅ Force AI Agent Configuration
+    // ✅ Send AI Agent Configuration
     const initialConfig = {
       type: "conversation_initiation_client_data",
       conversation_config_override: {
@@ -75,7 +75,7 @@ wss.on("connection", async (twilioWs) => {
       },
     };
 
-    console.log("📡 Sending forced AI agent configuration...");
+    console.log("📡 Sending AI agent configuration...");
     elevenLabsWs.send(JSON.stringify(initialConfig));
   });
 
@@ -111,27 +111,44 @@ wss.on("connection", async (twilioWs) => {
   // Keep-alive interval to send silent packets every 2 seconds
   const silenceInterval = setInterval(sendSilence, 2000);
 
-  // Forward audio from Twilio to Eleven Labs
+  // ✅ Convert Twilio raw audio to Base64 JSON for Eleven Labs
   twilioWs.on("message", (audioData) => {
     if (elevenLabsWs.readyState === WebSocket.OPEN) {
       console.log(`🔊 Twilio audio received (${audioData.length} bytes), forwarding to Eleven Labs...`);
-      elevenLabsWs.send(audioData);
+
+      const formattedData = JSON.stringify({
+        type: "audio_input",
+        format: "pcm",
+        data: audioData.toString("base64"),
+      });
+
+      elevenLabsWs.send(formattedData);
     } else {
       console.warn("⚠️ Eleven Labs WebSocket is not open. Skipping audio forwarding.");
     }
   });
 
-  // Forward AI-generated audio from Eleven Labs to Twilio
-  elevenLabsWs.on("message", (aiAudio) => {
-    if (aiAudio.length === 0) {
-      console.error("⚠️ Warning: Received empty AI response! This may cause Twilio to hang up.");
-    }
+  // ✅ Forward AI-generated audio from Eleven Labs to Twilio
+  elevenLabsWs.on("message", (message) => {
+    console.log(`🗣 Eleven Labs AI audio received`);
 
-    if (twilioWs.readyState === WebSocket.OPEN) {
-      console.log("🔄 Forwarding AI response to Twilio...");
-      twilioWs.send(aiAudio);
-    } else {
-      console.warn("🚨 Twilio WebSocket is closed before AI response could be sent.");
+    try {
+      const parsedMessage = JSON.parse(message);
+
+      if (parsedMessage.type === "audio_output" && parsedMessage.data) {
+        const aiAudio = Buffer.from(parsedMessage.data, "base64");
+
+        if (twilioWs.readyState === WebSocket.OPEN) {
+          console.log("🔄 Forwarding AI response to Twilio...");
+          twilioWs.send(aiAudio);
+        } else {
+          console.warn("🚨 Twilio WebSocket is closed before AI response could be sent.");
+        }
+      } else {
+        console.warn("⚠️ Unexpected message format received from Eleven Labs:", parsedMessage);
+      }
+    } catch (error) {
+      console.error("❌ Error parsing AI response from Eleven Labs:", error);
     }
   });
 
