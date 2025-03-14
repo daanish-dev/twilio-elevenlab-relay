@@ -20,13 +20,14 @@ wss.on("connection", async (twilioWs) => {
     try {
       const response = await fetch(
         `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${elevenLabsAgentId}`,
-        { method: "GET", headers: { "xi-api-key": elevenLabsApiKey } }
+        {
+          method: "GET",
+          headers: { "xi-api-key": elevenLabsApiKey },
+        }
       );
-
       if (!response.ok) {
         throw new Error(`Failed to get signed URL: ${response.statusText}`);
       }
-
       const data = await response.json();
       console.log("✅ Signed URL received:", data.signed_url);
       return data.signed_url;
@@ -53,42 +54,30 @@ wss.on("connection", async (twilioWs) => {
       conversation_config_override: {
         agent_id: elevenLabsAgentId,
         agent: {
-          prompt: { prompt: "Your AI agent's behavior and style" },
+          prompt: { prompt: "Your AI agent's custom behavior and style" },
           first_message: "Hello! This is your AI assistant. How can I help you?",
         },
       },
     };
-    console.log("📡 Sending AI agent configuration...");
+    console.log("📡 Sending forced AI agent configuration...");
     elevenLabsWs.send(JSON.stringify(initialConfig));
   });
 
-  elevenLabsWs.on("message", (message) => {
-    const parsedMessage = JSON.parse(message.toString());
-    if (parsedMessage.type === "audio_event") {
-      const audioData = Buffer.from(parsedMessage.audio_event.audio_base_64, "base64");
-      if (twilioWs.readyState === WebSocket.OPEN) {
-        twilioWs.send(audioData);
-      }
-    } else if (parsedMessage.type === "agent_response_event") {
-      console.log("🗣 AI Response:", parsedMessage.agent_response_event.agent_response);
+  elevenLabsWs.on("message", (data) => {
+    const message = JSON.parse(data);
+    if (message.type === "agent_response") {
+      console.log("🗣 AI Response:", message.agent_response_event.agent_response);
+    } else {
+      console.warn("⚠️ Unexpected response:", message);
     }
   });
 
-  twilioWs.on("message", (audioData) => {
-    if (elevenLabsWs.readyState === WebSocket.OPEN) {
-      elevenLabsWs.send(audioData);
-    }
+  elevenLabsWs.on("error", (error) => {
+    console.error("❌ Eleven Labs WebSocket Error:", error);
   });
 
-  twilioWs.on("close", () => {
-    console.log("❌ Twilio WebSocket closed");
-    if (elevenLabsWs.readyState !== WebSocket.CLOSED) {
-      elevenLabsWs.close();
-    }
-  });
-
-  elevenLabsWs.on("close", async () => {
-    console.log("❌ Eleven Labs WebSocket closed");
+  elevenLabsWs.on("close", async (code, reason) => {
+    console.warn(`⚠️ Eleven Labs WebSocket closed. Code: ${code}, Reason: ${reason}`);
     setTimeout(async () => {
       console.log("🔄 Reconnecting to Eleven Labs WebSocket...");
       signedUrl = await getSignedUrl();
@@ -98,6 +87,24 @@ wss.on("connection", async (twilioWs) => {
     }, 3000);
   });
 
-  elevenLabsWs.on("error", (err) => console.error("❌ Eleven Labs WS Error:", err));
-  twilioWs.on("error", (err) => console.error("❌ Twilio WS Error:", err));
+  twilioWs.on("message", (audioData) => {
+    if (elevenLabsWs.readyState === WebSocket.OPEN) {
+      console.log(`🔊 Forwarding Twilio audio (${audioData.length} bytes) to Eleven Labs...`);
+      elevenLabsWs.send(audioData);
+    }
+  });
+
+  elevenLabsWs.on("message", (aiAudio) => {
+    if (twilioWs.readyState === WebSocket.OPEN) {
+      console.log("🔄 Forwarding AI response to Twilio...");
+      twilioWs.send(aiAudio);
+    }
+  });
+
+  twilioWs.on("close", (code, reason) => {
+    console.log(`❌ Twilio WebSocket closed. Code: ${code}, Reason: ${reason}`);
+    if (elevenLabsWs.readyState !== WebSocket.CLOSED) {
+      elevenLabsWs.close();
+    }
+  });
 });
