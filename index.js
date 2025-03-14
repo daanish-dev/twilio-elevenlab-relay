@@ -18,7 +18,7 @@ wss.on("connection", async (twilioWs) => {
 
   // ✅ Step 1: Get the Signed URL for the correct AI Agent
   async function getSignedUrl() {
-    console.log("🛠 Fetching signed URL for Agent ID:", elevenLabsAgentId); // Debugging log
+    console.log("🛠 Fetching signed URL for Agent ID:", elevenLabsAgentId);
 
     try {
       const response = await fetch(
@@ -34,7 +34,14 @@ wss.on("connection", async (twilioWs) => {
       }
 
       const data = await response.json();
-      console.log("✅ Signed URL received:", data.signed_url); // Log the signed URL
+      console.log("✅ Signed URL received:", data.signed_url);
+
+      // Ensure it's a WebSocket URL
+      if (!data.signed_url.startsWith("wss://")) {
+        console.error("❌ Invalid signed URL format:", data.signed_url);
+        return null;
+      }
+
       return data.signed_url;
     } catch (error) {
       console.error("❌ Error getting signed URL:", error);
@@ -42,7 +49,7 @@ wss.on("connection", async (twilioWs) => {
     }
   }
 
-  const signedUrl = await getSignedUrl();
+  let signedUrl = await getSignedUrl();
 
   if (!signedUrl) {
     console.error("❌ Could not retrieve signed URL, closing Twilio connection.");
@@ -51,10 +58,10 @@ wss.on("connection", async (twilioWs) => {
   }
 
   // ✅ Step 2: Connect to Eleven Labs using the Signed URL
-  const elevenLabsWs = new WebSocket(signedUrl);
+  let elevenLabsWs = new WebSocket(signedUrl);
 
   elevenLabsWs.on("open", () => {
-    console.log("✅ Connected to Eleven Labs");
+    console.log("✅ Connected to Eleven Labs WebSocket");
 
     // ✅ Force AI Agent Configuration
     const initialConfig = {
@@ -70,6 +77,23 @@ wss.on("connection", async (twilioWs) => {
 
     console.log("📡 Sending forced AI agent configuration...");
     elevenLabsWs.send(JSON.stringify(initialConfig));
+  });
+
+  elevenLabsWs.on("error", (error) => {
+    console.error("❌ Eleven Labs WebSocket Connection Error:", error);
+  });
+
+  elevenLabsWs.on("close", async (code, reason) => {
+    console.warn(`⚠️ Eleven Labs WebSocket closed. Code: ${code}, Reason: ${reason}`);
+
+    // 🔄 Retry logic to reconnect if it closes unexpectedly
+    setTimeout(async () => {
+      console.log("🔄 Reconnecting to Eleven Labs WebSocket...");
+      signedUrl = await getSignedUrl();
+      if (signedUrl) {
+        elevenLabsWs = new WebSocket(signedUrl);
+      }
+    }, 3000); // Retry after 3 seconds
   });
 
   // Track connection states
@@ -89,9 +113,8 @@ wss.on("connection", async (twilioWs) => {
 
   // Forward audio from Twilio to Eleven Labs
   twilioWs.on("message", (audioData) => {
-    console.log(`🔊 Twilio audio received (${audioData.length} bytes)`);
-
     if (elevenLabsWs.readyState === WebSocket.OPEN) {
+      console.log(`🔊 Twilio audio received (${audioData.length} bytes), forwarding to Eleven Labs...`);
       elevenLabsWs.send(audioData);
     } else {
       console.warn("⚠️ Eleven Labs WebSocket is not open. Skipping audio forwarding.");
@@ -100,8 +123,6 @@ wss.on("connection", async (twilioWs) => {
 
   // Forward AI-generated audio from Eleven Labs to Twilio
   elevenLabsWs.on("message", (aiAudio) => {
-    console.log(`🗣 Eleven Labs AI audio received (${aiAudio.length} bytes)`);
-
     if (aiAudio.length === 0) {
       console.error("⚠️ Warning: Received empty AI response! This may cause Twilio to hang up.");
     }
@@ -135,6 +156,4 @@ wss.on("connection", async (twilioWs) => {
 
   // Handle Errors
   twilioWs.on("error", (err) => console.error("❌ Twilio WS Error:", err));
-  elevenLabsWs.on("error", (err) => console.error("❌ Eleven Labs WS Error:", err));
 });
-
