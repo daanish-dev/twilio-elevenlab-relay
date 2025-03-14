@@ -75,23 +75,36 @@ wss.on("connection", async (twilioWs) => {
       elevenLabsWs.send(JSON.stringify(initMessage));
     });
 
-    // ✅ Handle metadata response properly
+    // ✅ Handle Eleven Labs AI response properly
     elevenLabsWs.on("message", (data) => {
       try {
         const message = JSON.parse(data);
-        if (message.type === "conversation_initiation_metadata") {
+
+        if (message.type === "agent_response" && message.agent_response_event) {
+          const agentResponseEvent = message.agent_response_event;
+
+          // ✅ Handle AI-generated audio (if exists)
+          if (agentResponseEvent.audio) {
+            console.log("🗣 AI audio response received, forwarding to Twilio...");
+            const aiAudioBuffer = Buffer.from(agentResponseEvent.audio, "base64");
+            if (twilioWs.readyState === WebSocket.OPEN) {
+              twilioWs.send(aiAudioBuffer);
+            }
+          }
+
+          // ✅ Log AI's text response
+          if (agentResponseEvent.agent_response) {
+            console.log("💬 AI Text Response:", agentResponseEvent.agent_response);
+          }
+
+        } else if (message.type === "conversation_initiation_metadata") {
           console.log("✅ Conversation initiated:", message);
           audioFormat = message.conversation_initiation_metadata_event.agent_output_audio_format;
           console.log("🔊 Audio format set to:", audioFormat);
-        } else if (message.type === "audio") {
-          const aiAudioBuffer = Buffer.from(message.audio, "base64");
-          if (twilioWs.readyState === WebSocket.OPEN) {
-            console.log("🗣 AI audio response received, forwarding to Twilio...");
-            twilioWs.send(aiAudioBuffer);
-          }
         } else {
           console.warn("⚠️ Unexpected message type from Eleven Labs:", message);
         }
+
       } catch (error) {
         console.error("❌ Failed to parse Eleven Labs message:", error);
       }
@@ -133,7 +146,7 @@ wss.on("connection", async (twilioWs) => {
   });
 
   // ✅ Send silence to prevent Twilio timeout
-  function sendSilence() { 
+  function sendSilence() {
     if (twilioWs.readyState === WebSocket.OPEN) {
       console.log("🔇 Sending silent audio to Twilio to keep connection alive...");
       twilioWs.send(Buffer.alloc(320)); // 20ms of silence (ulaw 8kHz)
