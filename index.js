@@ -69,7 +69,7 @@ wss.on("connection", async (twilioWs) => {
           agent: {
             prompt: { prompt: "Your AI agent's custom behavior and style" },
             first_message: "Hello! This is your AI assistant. How can I help you?",
-            always_listen: true, // 👈 Keeps AI active
+            always_listen: true,
             auto_continue: true,
           },
         },
@@ -80,19 +80,6 @@ wss.on("connection", async (twilioWs) => {
 
       // Reset reconnection attempts on successful connection
       reconnectAttempts = 0;
-    });
-
-    elevenLabsWs.on("message", (data) => {
-      try {
-        const message = JSON.parse(data);
-        if (message.type === "agent_response") {
-          console.log("🗣 AI Response:", message.agent_response_event.agent_response);
-        } else {
-          console.warn("⚠️ Unexpected response:", message);
-        }
-      } catch (error) {
-        console.error("❌ Failed to parse WebSocket message:", error);
-      }
     });
 
     elevenLabsWs.on("error", (error) => {
@@ -116,25 +103,36 @@ wss.on("connection", async (twilioWs) => {
 
   await connectToElevenLabs();
 
-  // Forward audio from Twilio to Eleven Labs
+  // ✅ FIX 1: Properly handle Twilio audio before forwarding to Eleven Labs
   twilioWs.on("message", (audioData) => {
     if (elevenLabsWs && elevenLabsWs.readyState === WebSocket.OPEN) {
-      console.log(`🔊 Forwarding Twilio audio (${audioData.length} bytes) to Eleven Labs...`);
-      elevenLabsWs.send(audioData);
+      console.log(`🔊 Received Twilio audio (${audioData.length} bytes), forwarding...`);
+
+      // Ensure data is in the expected format before sending
+      const formattedData = Buffer.from(audioData); // Convert to Buffer if needed
+      elevenLabsWs.send(formattedData);
     } else {
       console.warn("⚠️ Eleven Labs WebSocket is not open. Skipping audio forwarding.");
     }
   });
 
-  // Forward AI audio back to Twilio
-  if (elevenLabsWs) {
-    elevenLabsWs.on("message", (aiAudio) => {
-      if (twilioWs.readyState === WebSocket.OPEN) {
-        console.log("🔄 Forwarding AI response to Twilio...");
-        twilioWs.send(aiAudio);
+  // ✅ FIX 2: Correctly process AI responses from Eleven Labs and forward to Twilio
+  elevenLabsWs.on("message", (data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === "agent_response" && message.agent_response_event?.audio) {
+        console.log("🗣 AI Response received, forwarding to Twilio...");
+        const aiAudioBuffer = Buffer.from(message.agent_response_event.audio, "base64"); // Decode Base64
+        if (twilioWs.readyState === WebSocket.OPEN) {
+          twilioWs.send(aiAudioBuffer);
+        }
+      } else {
+        console.warn("⚠️ Unexpected AI response format:", message);
       }
-    });
-  }
+    } catch (error) {
+      console.error("❌ Failed to parse WebSocket message:", error);
+    }
+  });
 
   // Handle Twilio WebSocket closing
   twilioWs.on("close", (code, reason) => {
