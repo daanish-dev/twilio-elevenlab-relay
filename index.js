@@ -1,21 +1,47 @@
 import WebSocket, { WebSocketServer } from "ws";
+import dotenv from "dotenv";
 
-// Start WebSocket server on port 8080
-const wss = new WebSocketServer({ port: 8080 }, () => {
-  console.log("✅ WebSocket Server started on ws://localhost:8080");
+// Load environment variables from .env file
+dotenv.config();
+
+// Retrieve values from environment variables
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID; // ✅ Voice ID added
+const PORT = process.env.PORT || 8080; // Default to 8080 if not set
+
+// Start WebSocket server
+const wss = new WebSocketServer({ port: PORT }, () => {
+  console.log(`✅ WebSocket Server started on ws://localhost:${PORT}`);
 });
 
 wss.on("connection", (twilioWs, req) => {
   console.log("✅ Twilio WebSocket connected from:", req.socket.remoteAddress);
 
-  // Connect to Eleven Labs WebSocket with correct AI agent ID
+  // Connect to Eleven Labs WebSocket with API key and agent ID from .env
   console.log("⚙ Connecting to Eleven Labs WebSocket...");
   const elevenLabsWs = new WebSocket("wss://api.elevenlabs.io/v1/conversational/stream", {
     headers: {
-      "xi-api-key": "sk_2de7a2463796ce0b9588f3d92507cc1631b0d957f06078ab", // ✅ Make sure this key is valid
-      "xi-agent-id": "JzzWYXNl2EgI01Z0OTvR", // ✅ Your valid agent ID
+      "xi-api-key": ELEVENLABS_API_KEY,
+      "xi-agent-id": ELEVENLABS_AGENT_ID,
       "Content-Type": "application/json"
     }
+  });
+
+  // Once Eleven Labs WebSocket is open, send configuration with the voice ID
+  elevenLabsWs.on("open", () => {
+    console.log("✅ Connected to Eleven Labs WebSocket");
+
+    // Send initial configuration with voice ID
+    const initMessage = JSON.stringify({
+      type: "config",
+      voice_id: ELEVENLABS_VOICE_ID, // ✅ Voice ID loaded from .env
+      language: "en-US", // Adjust as needed
+      sample_rate: 24000 // Ensure compatibility with Twilio
+    });
+
+    elevenLabsWs.send(initMessage);
+    console.log("🎤 Sent voice configuration to Eleven Labs:", initMessage);
   });
 
   // Keep-Alive Ping to Eleven Labs every 5 seconds
@@ -55,7 +81,6 @@ wss.on("connection", (twilioWs, req) => {
   };
 
   // Handle Eleven Labs events
-  elevenLabsWs.on("open", () => console.log("✅ Connected to Eleven Labs WebSocket"));
   elevenLabsWs.on("close", (code, reason) => {
     console.error(`❌ Eleven Labs WebSocket closed. Code: ${code}, Reason: ${reason}`);
     closeAll("Eleven Labs closed");
