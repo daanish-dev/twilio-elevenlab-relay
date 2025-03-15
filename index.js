@@ -1,93 +1,95 @@
 import WebSocket, { WebSocketServer } from "ws";
-import fetch from "node-fetch"; // Make sure to install this via npm install node-fetch
+import axios from "axios";
+import dotenv from "dotenv";
 
-const AGENT_ID = "JzzWYXNl2EgI01Z0OTvR";
-const XI_API_KEY = "sk_e57b39b41f200e61f3cfc9c737836af80113b261bcf094ba";
+// Load environment variables from .env file (Render handles env vars directly)
+dotenv.config();
 
-// Start WebSocket Server
+// Create WebSocket server on port 8080
 const wss = new WebSocketServer({ port: 8080 }, () => {
   console.log("✅ WebSocket Server started on ws://localhost:8080");
 });
 
+// Listen for Twilio WebSocket connection
 wss.on("connection", async (twilioWs, req) => {
   console.log(`✅ Twilio WebSocket connected from: ${req.socket.remoteAddress}`);
 
   try {
-    // Step 1: Fetch Eleven Labs Conversation Token
     console.log("⚙ Fetching ElevenLabs conversation token...");
-    const response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${AGENT_ID}/link`, {
-      method: "POST",
-      headers: {
-        "xi-api-key": XI_API_KEY,
-        "Content-Type": "application/json",
-      },
-    });
 
-    const data = await response.json();
+    // Step 1: Get conversation token dynamically
+    const response = await axios.get(
+      `https://api.elevenlabs.io/v1/convai/agents/${process.env.ELEVEN_LABS_AGENT_ID}/link`,
+      {
+        headers: {
+          "xi-api-key": process.env.ELEVEN_LABS_API_KEY,
+        },
+      }
+    );
 
-    console.log("✅ ElevenLabs link response:", data);
+    console.log("✅ ElevenLabs link response:", response.data);
 
-    const conversationToken = data?.token?.conversation_token;
-
+    const conversationToken = response.data?.token?.conversation_token;
     if (!conversationToken) {
-      console.error("❌ Failed to get conversation token:", data);
+      console.error("❌ ElevenLabs returned invalid response:", response.data);
       twilioWs.close();
       return;
     }
 
-    console.log("✅ Conversation Token:", conversationToken);
+    console.log(`✅ Conversation Token: ${conversationToken}`);
 
     // Step 2: Connect to Eleven Labs WebSocket
     console.log("⚙ Connecting to Eleven Labs WebSocket...");
     const elevenLabsWs = new WebSocket("wss://api.elevenlabs.io/v1/convai/stream", {
       headers: {
-        "xi-api-key": XI_API_KEY,
-        "xi-conversation-id": conversationToken, // Pass the conversation token here
-        "Content-Type": "application/json"
+        "xi-api-key": process.env.ELEVEN_LABS_API_KEY,
+        "Authorization": `Bearer ${conversationToken}`,
+        "xi-agent-id": process.env.ELEVEN_LABS_AGENT_ID,
+        "xi-voice-id": process.env.ELEVEN_LABS_VOICE_ID, // ✅ Voice ID from variable
+      },
+    });
+
+    // Step 3: Handle Eleven Labs WebSocket events
+    elevenLabsWs.on("open", () => console.log("✅ Connected to Eleven Labs WebSocket"));
+
+    elevenLabsWs.on("message", (aiAudio) => {
+      console.log(`🗣 Eleven Labs AI audio received (${aiAudio.length} bytes)`);
+      if (twilioWs.readyState === WebSocket.OPEN) {
+        twilioWs.send(aiAudio);
+        console.log("🔄 Forwarded AI audio to Twilio.");
       }
     });
 
-    // Step 3: Keep alive ping for Eleven Labs every 5 seconds
-    const keepAlivePing = setInterval(() => {
-      if (elevenLabsWs.readyState === WebSocket.OPEN) {
-        console.log("🛠 Sending Keep-Alive Ping to Eleven Labs...");
-        elevenLabsWs.send(JSON.stringify({ type: "ping" }));
-      }
-    }, 5000);
+    elevenLabsWs.on("close", (code, reason) => {
+      console.error(`❌ Eleven Labs WebSocket closed. Code: ${code}, Reason: ${reason}`);
+      twilioWs.close();
+    });
+
+    elevenLabsWs.on("error", (err) => {
+      console.error("❌ Eleven Labs WS Error:", err);
+      twilioWs.close();
+    });
 
     // Step 4: Forward audio from Twilio to Eleven Labs
     twilioWs.on("message", (audioData) => {
       console.log(`🔊 Twilio audio received (${audioData.length} bytes)`);
       if (elevenLabsWs.readyState === WebSocket.OPEN) {
         elevenLabsWs.send(audioData);
+      } else {
+        console.warn("⚠ Eleven Labs WebSocket not open. Skipping forwarding.");
       }
     });
 
-    // Step 5: Forward AI-generated audio from Eleven Labs to Twilio
-    elevenLabsWs.on("message", (aiAudio) => {
-      console.log(`🗣 Eleven Labs AI audio received (${aiAudio.length} bytes)`);
-      if (twilioWs.readyState === WebSocket.OPEN) {
-        twilioWs.send(aiAudio);
-      }
+    // Step 5: Clean up on Twilio WebSocket close
+    twilioWs.on("close", (code, reason) => {
+      console.warn(`❌ Twilio WebSocket closed. Code: ${code}, Reason: ${reason}`);
+      elevenLabsWs.close();
     });
 
-    // Step 6: Handle closures properly
-    const closeConnections = (who) => {
-      console.log(`❌ Closing connections: ${who}`);
-      clearInterval(keepAlivePing);
-      if (twilioWs.readyState === WebSocket.OPEN) twilioWs.close();
-      if (elevenLabsWs.readyState === WebSocket.OPEN) elevenLabsWs.close();
-    };
-
-    twilioWs.on("close", () => closeConnections("Twilio closed"));
-    elevenLabsWs.on("close", () => closeConnections("Eleven Labs closed"));
-
-    // Step 7: Handle errors
     twilioWs.on("error", (err) => console.error("❌ Twilio WS Error:", err));
-    elevenLabsWs.on("error", (err) => console.error("❌ Eleven Labs WS Error:", err));
 
-  } catch (error) {
-    console.error("❌ Error setting up connection:", error);
+  } catch (err) {
+    console.error("❌ Error during setup:", err);
     twilioWs.close();
   }
 });
