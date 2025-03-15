@@ -40,14 +40,10 @@ wss.on("connection", async (twilioWs, req) => {
 
     // Step 2: Connect to Eleven Labs WebSocket
     console.log("⚙ Connecting to Eleven Labs WebSocket...");
-    const elevenLabsWs = new WebSocket("wss://api.elevenlabs.io/v1/convai/stream", {
-      headers: {
-        "xi-api-key": process.env.ELEVEN_LABS_API_KEY,
-        "Authorization": `Bearer ${conversationToken}`,
-        "xi-agent-id": process.env.ELEVEN_LABS_AGENT_ID,
-        "xi-voice-id": process.env.ELEVEN_LABS_VOICE_ID, // ✅ Voice ID from variable
-      },
-    });
+    const elevenLabsWs = new WebSocket(
+      `wss://api.elevenlabs.io/v1/convai/ws?conversation_token=${conversationToken}`
+    );
+
 
     // Step 3: Handle Eleven Labs WebSocket events
     elevenLabsWs.on("open", () => console.log("✅ Connected to Eleven Labs WebSocket"));
