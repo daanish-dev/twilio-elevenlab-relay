@@ -1,8 +1,7 @@
 import WebSocket, { WebSocketServer } from "ws";
-import axios from "axios";
 import dotenv from "dotenv";
 
-// Load environment variables from .env file (Render handles env vars directly)
+// Load environment variables (e.g., ELEVEN_LABS_AGENT_ID)
 dotenv.config();
 
 // Create WebSocket server on port 8080
@@ -10,42 +9,19 @@ const wss = new WebSocketServer({ port: 8080 }, () => {
   console.log("✅ WebSocket Server started on ws://localhost:8080");
 });
 
-// Listen for Twilio WebSocket connection
+// Listen for Twilio WebSocket connections
 wss.on("connection", async (twilioWs, req) => {
   console.log(`✅ Twilio WebSocket connected from: ${req.socket.remoteAddress}`);
 
   try {
-    console.log("⚙ Fetching ElevenLabs conversation token...");
-
-    // Step 1: Get conversation token dynamically
-    const response = await axios.get(
-      `https://api.elevenlabs.io/v1/convai/agents/${process.env.ELEVEN_LABS_AGENT_ID}/link`,
-      {
-        headers: {
-          "xi-api-key": process.env.ELEVEN_LABS_API_KEY,
-        },
-      }
-    );
-
-    console.log("✅ ElevenLabs link response:", response.data);
-
-    const conversationToken = response.data?.token?.conversation_token;
-    if (!conversationToken) {
-      console.error("❌ ElevenLabs returned invalid response:", response.data);
-      twilioWs.close();
-      return;
-    }
-
-    console.log(`✅ Conversation Token: ${conversationToken}`);
-
-    // Step 2: Connect to Eleven Labs WebSocket
+    // Step 1: Connect directly to ElevenLabs WebSocket using agent_id
     console.log("⚙ Connecting to Eleven Labs WebSocket...");
+
     const elevenLabsWs = new WebSocket(
-      `wss://api.elevenlabs.io/v1/convai/ws?conversation_token=${conversationToken}`
+      `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${process.env.ELEVEN_LABS_AGENT_ID}`
     );
 
-
-    // Step 3: Handle Eleven Labs WebSocket events
+    // Step 2: Handle ElevenLabs WebSocket events
     elevenLabsWs.on("open", () => console.log("✅ Connected to Eleven Labs WebSocket"));
 
     elevenLabsWs.on("message", (aiAudio) => {
@@ -66,7 +42,7 @@ wss.on("connection", async (twilioWs, req) => {
       twilioWs.close();
     });
 
-    // Step 4: Forward audio from Twilio to Eleven Labs
+    // Step 3: Forward audio from Twilio to ElevenLabs
     twilioWs.on("message", (audioData) => {
       console.log(`🔊 Twilio audio received (${audioData.length} bytes)`);
       if (elevenLabsWs.readyState === WebSocket.OPEN) {
@@ -76,7 +52,7 @@ wss.on("connection", async (twilioWs, req) => {
       }
     });
 
-    // Step 5: Clean up on Twilio WebSocket close
+    // Step 4: Handle Twilio WebSocket close and errors
     twilioWs.on("close", (code, reason) => {
       console.warn(`❌ Twilio WebSocket closed. Code: ${code}, Reason: ${reason}`);
       elevenLabsWs.close();
